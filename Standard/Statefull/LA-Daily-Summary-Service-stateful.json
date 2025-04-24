@@ -1,0 +1,289 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "actions": {
+            "Initialize_dateStarted": {
+                "type": "InitializeVariable",
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "dateStarted",
+                            "type": "string",
+                            "value": "@{formatDateTime(utcNow(), 'dd-MM-yyyy HH:mm:ss.fff')}"
+                        }
+                    ]
+                },
+                "runAfter": {}
+            },
+            "Try": {
+                "type": "Scope",
+                "actions": {
+                    "Lists_blobs_(V2)": {
+                        "type": "ApiConnection",
+                        "inputs": {
+                            "host": {
+                                "connection": {
+                                    "referenceName": "azureblob"
+                                }
+                            },
+                            "method": "get",
+                            "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('AccountNameFromSettings'))}/foldersV2/@{encodeURIComponent(encodeURIComponent('JTJmcHVyY2hhc2Vz'))}",
+                            "queries": {
+                                "useFlatListing": false
+                            }
+                        },
+                        "metadata": {
+                            "JTJmcHVyY2hhc2Vz": "/purchases"
+                        }
+                    },
+                    "For_each_blob": {
+                        "type": "Foreach",
+                        "foreach": "@body('Lists_blobs_(V2)')?['value']",
+                        "actions": {
+                            "Get_blob_content_(V2)": {
+                                "type": "ApiConnection",
+                                "inputs": {
+                                    "host": {
+                                        "connection": {
+                                            "referenceName": "azureblob"
+                                        }
+                                    },
+                                    "method": "get",
+                                    "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('AccountNameFromSettings'))}/files/@{encodeURIComponent(encodeURIComponent(item()?['Path']))}/content",
+                                    "queries": {
+                                        "inferContentType": true
+                                    }
+                                }
+                            },
+                            "Parse_blob_content_as_JSON": {
+                                "type": "ParseJson",
+                                "inputs": {
+                                    "content": "@body('Get_blob_content_(V2)')",
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "orderId": {
+                                                "type": "string"
+                                            },
+                                            "name": {
+                                                "type": "string"
+                                            },
+                                            "surname": {
+                                                "type": "string"
+                                            },
+                                            "email": {
+                                                "type": "string"
+                                            },
+                                            "country": {
+                                                "type": "string"
+                                            },
+                                            "purchaseDate": {
+                                                "type": "string"
+                                            },
+                                            "amount": {
+                                                "type": "number"
+                                            },
+                                            "currency": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    }
+                                },
+                                "runAfter": {
+                                    "Get_blob_content_(V2)": [
+                                        "SUCCEEDED"
+                                    ]
+                                }
+                            },
+                            "Append_to_ordersList": {
+                                "type": "AppendToStringVariable",
+                                "inputs": {
+                                    "name": "ordersList",
+                                    "value": "@{body('Parse_blob_content_as_JSON')?['orderId']}: Total @{body('Parse_blob_content_as_JSON')?['amount']} @{body('Parse_blob_content_as_JSON')?['currency']} <br>"
+                                },
+                                "runAfter": {
+                                    "Parse_blob_content_as_JSON": [
+                                        "SUCCEEDED"
+                                    ]
+                                }
+                            },
+                            "Increment_totalRevenue": {
+                                "type": "IncrementVariable",
+                                "inputs": {
+                                    "name": "totalRevenue",
+                                    "value": "@body('Parse_blob_content_as_JSON')?['amount']"
+                                },
+                                "runAfter": {
+                                    "Append_to_ordersList": [
+                                        "SUCCEEDED"
+                                    ]
+                                }
+                            }
+                        },
+                        "runAfter": {
+                            "Lists_blobs_(V2)": [
+                                "SUCCEEDED"
+                            ]
+                        }
+                    },
+                    "Send_an_email_(V2)": {
+                        "type": "ApiConnection",
+                        "inputs": {
+                            "host": {
+                                "connection": {
+                                    "referenceName": "outlook"
+                                }
+                            },
+                            "method": "post",
+                            "body": {
+                                "To": "test@test.com",
+                                "Subject": "Your Daily Summary - @{formatDateTime(utcNow(), 'dd-MM-yyyy')}",
+                                "Body": "<p class=\"editor-paragraph\">Hi!<br><br>These are all orders from the past 24 hours:<br>@{variables('ordersList')}<br>Total Revenue: @{variables('totalRevenue')} EUR<br><br>Sincerely,<br>The Customer Success Team</p>",
+                                "Importance": "Normal"
+                            },
+                            "path": "/v2/Mail"
+                        },
+                        "runAfter": {
+                            "For_each_blob": [
+                                "SUCCEEDED"
+                            ]
+                        }
+                    },
+                    "For_each_processed_blob": {
+                        "type": "Foreach",
+                        "foreach": "@body('Lists_blobs_(V2)')?['value']",
+                        "actions": {
+                            "Copy_blob_(V2)": {
+                                "type": "ApiConnection",
+                                "inputs": {
+                                    "host": {
+                                        "connection": {
+                                            "referenceName": "azureblob"
+                                        }
+                                    },
+                                    "method": "post",
+                                    "headers": {
+                                        "ReadFileMetadataFromServer": true
+                                    },
+                                    "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('AccountNameFromSettings'))}/copyFile",
+                                    "queries": {
+                                        "source": "@item()?['Path']",
+                                        "destination": "purchases-archive/@{item()?['Name']}",
+                                        "overwrite": true,
+                                        "queryParametersSingleEncoded": true
+                                    }
+                                }
+                            },
+                            "Delete_blob_(V2)": {
+                                "type": "ApiConnection",
+                                "inputs": {
+                                    "host": {
+                                        "connection": {
+                                            "referenceName": "azureblob"
+                                        }
+                                    },
+                                    "method": "delete",
+                                    "headers": {
+                                        "SkipDeleteIfFileNotFoundOnServer": false
+                                    },
+                                    "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('AccountNameFromSettings'))}/files/@{encodeURIComponent(encodeURIComponent(item()?['Path']))}"
+                                },
+                                "runAfter": {
+                                    "Copy_blob_(V2)": [
+                                        "SUCCEEDED"
+                                    ]
+                                }
+                            }
+                        },
+                        "runAfter": {
+                            "Send_an_email_(V2)": [
+                                "SUCCEEDED"
+                            ]
+                        }
+                    },
+                    "Response": {
+                        "type": "Response",
+                        "kind": "Http",
+                        "inputs": {
+                            "statusCode": 200,
+                            "body": "Started at @{variables('dateStarted')}, finished at @{formatDateTime(utcNow(), 'dd-MM-yyyy HH:mm:ss.fff')}"
+                        },
+                        "runAfter": {
+                            "For_each_processed_blob": [
+                                "SUCCEEDED"
+                            ]
+                        }
+                    }
+                },
+                "runAfter": {
+                    "Initialize_totalRevenue": [
+                        "SUCCEEDED"
+                    ]
+                }
+            },
+            "Initialize_ordersList": {
+                "type": "InitializeVariable",
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "ordersList",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "runAfter": {
+                    "Initialize_dateStarted": [
+                        "SUCCEEDED"
+                    ]
+                }
+            },
+            "Initialize_totalRevenue": {
+                "type": "InitializeVariable",
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "totalRevenue",
+                            "type": "float",
+                            "value": 0
+                        }
+                    ]
+                },
+                "runAfter": {
+                    "Initialize_ordersList": [
+                        "SUCCEEDED"
+                    ]
+                }
+            },
+            "Catch": {
+                "type": "Scope",
+                "actions": {
+                    "Response_1": {
+                        "type": "Response",
+                        "kind": "Http",
+                        "inputs": {
+                            "statusCode": 500,
+                            "body": "An error has occured"
+                        }
+                    }
+                },
+                "runAfter": {
+                    "Try": [
+                        "FAILED"
+                    ]
+                }
+            }
+        },
+        "contentVersion": "1.0.0.0",
+        "outputs": {},
+        "triggers": {
+            "When_a_HTTP_request_is_received": {
+                "type": "Request",
+                "kind": "Http",
+                "inputs": {
+                    "method": "POST"
+                }
+            }
+        }
+    },
+    "kind": "Stateful"
+}

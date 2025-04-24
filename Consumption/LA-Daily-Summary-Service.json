@@ -1,0 +1,312 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "contentVersion": "1.0.0.0",
+        "triggers": {
+            "When_a_HTTP_request_is_received": {
+                "type": "Request",
+                "kind": "Http",
+                "inputs": {
+                    "method": "POST"
+                }
+            }
+        },
+        "actions": {
+            "Initialize_ordersList": {
+                "runAfter": {},
+                "type": "InitializeVariable",
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "ordersList",
+                            "type": "string"
+                        }
+                    ]
+                }
+            },
+            "Initialize_totalRevenue": {
+                "runAfter": {
+                    "Initialize_ordersList": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "InitializeVariable",
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "totalRevenue",
+                            "type": "float",
+                            "value": 0
+                        }
+                    ]
+                }
+            },
+            "Try": {
+                "actions": {
+                    "Lists_blobs_(V2)": {
+                        "metadata": {
+                            "JTJmcHVyY2hhc2Vz": "/purchases"
+                        },
+                        "type": "ApiConnection",
+                        "inputs": {
+                            "host": {
+                                "connection": {
+                                    "name": "@parameters('$connections')['azureblob']['connectionId']"
+                                }
+                            },
+                            "method": "get",
+                            "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('AccountNameFromSettings'))}/foldersV2/@{encodeURIComponent(encodeURIComponent('JTJmcHVyY2hhc2Vz'))}",
+                            "queries": {
+                                "useFlatListing": false
+                            }
+                        }
+                    },
+                    "For_each_blob": {
+                        "foreach": "@body('Lists_blobs_(V2)')?['value']",
+                        "actions": {
+                            "Get_blob_content_(V2)": {
+                                "type": "ApiConnection",
+                                "inputs": {
+                                    "host": {
+                                        "connection": {
+                                            "name": "@parameters('$connections')['azureblob']['connectionId']"
+                                        }
+                                    },
+                                    "method": "get",
+                                    "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('AccountNameFromSettings'))}/files/@{encodeURIComponent(encodeURIComponent(item()?['Path']))}/content",
+                                    "queries": {
+                                        "inferContentType": true
+                                    }
+                                }
+                            },
+                            "Parse_blob_content_as_JSON": {
+                                "runAfter": {
+                                    "Get_blob_content_(V2)": [
+                                        "Succeeded"
+                                    ]
+                                },
+                                "type": "ParseJson",
+                                "inputs": {
+                                    "content": "@body('Get_blob_content_(V2)')",
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "orderId": {
+                                                "type": "string"
+                                            },
+                                            "name": {
+                                                "type": "string"
+                                            },
+                                            "surname": {
+                                                "type": "string"
+                                            },
+                                            "email": {
+                                                "type": "string"
+                                            },
+                                            "country": {
+                                                "type": "string"
+                                            },
+                                            "purchaseDate": {
+                                                "type": "string"
+                                            },
+                                            "amount": {
+                                                "type": "number"
+                                            },
+                                            "currency": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "Increment_totalRevenue": {
+                                "runAfter": {
+                                    "Append_to_ordersList": [
+                                        "Succeeded"
+                                    ]
+                                },
+                                "type": "IncrementVariable",
+                                "inputs": {
+                                    "name": "totalRevenue",
+                                    "value": "@body('Parse_blob_content_as_JSON')?['amount']"
+                                }
+                            },
+                            "Append_to_ordersList": {
+                                "runAfter": {
+                                    "Parse_blob_content_as_JSON": [
+                                        "Succeeded"
+                                    ]
+                                },
+                                "type": "AppendToStringVariable",
+                                "inputs": {
+                                    "name": "ordersList",
+                                    "value": "@{body('Parse_blob_content_as_JSON')?['orderId']}: Total @{body('Parse_blob_content_as_JSON')?['amount']} @{body('Parse_blob_content_as_JSON')?['currency']} <br>"
+                                }
+                            }
+                        },
+                        "runAfter": {
+                            "Lists_blobs_(V2)": [
+                                "Succeeded"
+                            ]
+                        },
+                        "type": "Foreach"
+                    },
+                    "Send_an_email_(V2)": {
+                        "runAfter": {
+                            "For_each_blob": [
+                                "Succeeded"
+                            ]
+                        },
+                        "type": "ApiConnection",
+                        "inputs": {
+                            "host": {
+                                "connection": {
+                                    "name": "@parameters('$connections')['outlook']['connectionId']"
+                                }
+                            },
+                            "method": "post",
+                            "body": {
+                                "To": "n.kundzina@gmail.com",
+                                "Subject": "Your Daily Summary - @{formatDateTime(utcNow(), 'dd-MM-yyyy')}",
+                                "Body": "<p class=\"editor-paragraph\">Hi!</p><p class=\"editor-paragraph\"><br>These are all orders from the past 24 hours:</p><p class=\"editor-paragraph\"></p><p class=\"editor-paragraph\">@{variables('ordersList')}</p><p class=\"editor-paragraph\"></p><p class=\"editor-paragraph\">Total Revenue: @{variables('totalRevenue')} EUR</p><br><p class=\"editor-paragraph\">Sincerely,</p><p class=\"editor-paragraph\">The Customer Success Team</p>",
+                                "Importance": "Normal"
+                            },
+                            "path": "/v2/Mail"
+                        }
+                    },
+                    "For_each_processed_blob": {
+                        "foreach": "@body('Lists_blobs_(V2)')?['value']",
+                        "actions": {
+                            "Copy_blob_(V2)_1": {
+                                "type": "ApiConnection",
+                                "inputs": {
+                                    "host": {
+                                        "connection": {
+                                            "name": "@parameters('$connections')['azureblob']['connectionId']"
+                                        }
+                                    },
+                                    "method": "post",
+                                    "headers": {
+                                        "ReadFileMetadataFromServer": true
+                                    },
+                                    "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('AccountNameFromSettings'))}/copyFile",
+                                    "queries": {
+                                        "source": "@item()?['Path']",
+                                        "destination": "purchases-archive/@{item()?['Name']}",
+                                        "overwrite": true,
+                                        "queryParametersSingleEncoded": true
+                                    }
+                                }
+                            },
+                            "Delete_blob_(V2)_1": {
+                                "runAfter": {
+                                    "Copy_blob_(V2)_1": [
+                                        "Succeeded"
+                                    ]
+                                },
+                                "type": "ApiConnection",
+                                "inputs": {
+                                    "host": {
+                                        "connection": {
+                                            "name": "@parameters('$connections')['azureblob']['connectionId']"
+                                        }
+                                    },
+                                    "method": "delete",
+                                    "headers": {
+                                        "SkipDeleteIfFileNotFoundOnServer": false
+                                    },
+                                    "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('AccountNameFromSettings'))}/files/@{encodeURIComponent(encodeURIComponent(item()?['Path']))}"
+                                }
+                            }
+                        },
+                        "runAfter": {
+                            "Send_an_email_(V2)": [
+                                "Succeeded"
+                            ]
+                        },
+                        "type": "Foreach"
+                    }
+                },
+                "runAfter": {
+                    "Initialize_totalRevenue": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "Scope"
+            },
+            "Catch": {
+                "actions": {
+                    "Retrieve_failed_actions": {
+                        "type": "Query",
+                        "inputs": {
+                            "from": "@result('Try')",
+                            "where": "@equals(item()?['status'],'Failed')"
+                        }
+                    },
+                    "For_each_failed_action": {
+                        "foreach": "@outputs('Retrieve_failed_actions')['body']",
+                        "actions": {
+                            "Send_Data_to_LA_Workspace": {
+                                "type": "ApiConnection",
+                                "inputs": {
+                                    "host": {
+                                        "connection": {
+                                            "name": "@parameters('$connections')['azureloganalyticsdatacollector']['connectionId']"
+                                        }
+                                    },
+                                    "method": "post",
+                                    "body": "{\n  \"LogicAppName\": \"@{workflow()}\",\n  \"ActionName\": \"@{items('For_each_failed_action')?['name']}\",\n  \"Error\": \"@{items('For_each_failed_action')?['error']?['message']}\"\n  \"Code\": \"@{items('For_each_failed_action')?['error']?['code']}\"\n}",
+                                    "headers": {
+                                        "Log-Type": "TryScopeError"
+                                    },
+                                    "path": "/api/logs"
+                                }
+                            }
+                        },
+                        "runAfter": {
+                            "Retrieve_failed_actions": [
+                                "Succeeded"
+                            ]
+                        },
+                        "type": "Foreach"
+                    }
+                },
+                "runAfter": {
+                    "Try": [
+                        "Failed"
+                    ]
+                },
+                "type": "Scope"
+            }
+        },
+        "outputs": {},
+        "parameters": {
+            "$connections": {
+                "type": "Object",
+                "defaultValue": {}
+            }
+        }
+    },
+    "parameters": {
+        "$connections": {
+            "type": "Object",
+            "value": {
+                "azureblob": {
+                    "id": "/subscriptions/mysubscriptionguid/providers/Microsoft.Web/locations/northeurope/managedApis/azureblob",
+                    "connectionId": "/subscriptions/mysubscriptionguid/resourceGroups/LA-Daily-Summary-Service/providers/Microsoft.Web/connections/azureblob",
+                    "connectionName": "azureblob"
+                },
+                "outlook": {
+                    "id": "/subscriptions/mysubscriptionguid/providers/Microsoft.Web/locations/northeurope/managedApis/outlook",
+                    "connectionId": "/subscriptions/mysubscriptionguid/resourceGroups/LA-Daily-Summary-Service/providers/Microsoft.Web/connections/outlook",
+                    "connectionName": "outlook"
+                },
+                "azureloganalyticsdatacollector": {
+                    "id": "/subscriptions/mysubscriptionguid/providers/Microsoft.Web/locations/northeurope/managedApis/azureloganalyticsdatacollector",
+                    "connectionId": "/subscriptions/mysubscriptionguid/resourceGroups/LA-Daily-Summary-Service/providers/Microsoft.Web/connections/azureloganalyticsdatacollector",
+                    "connectionName": "azureloganalyticsdatacollector"
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,29 @@
+{
+    "managedApiConnections": {
+      "azureblob": {
+        "api": {
+          "id": "/subscriptions/mysubscriptionguid/providers/Microsoft.Web/locations/northeurope/managedApis/azureblob"
+        },
+        "connection": {
+          "id": "/subscriptions/mysubscriptionguid/resourceGroups/la-standard/providers/Microsoft.Web/connections/azureblob"
+        },
+        "authentication": {
+          "type": "ManagedServiceIdentity"
+        },
+        "connectionRuntimeUrl": "https://myruntime.url.common.logic-northeurope.azure-apihub.net/apim/azureblob/19d5c500e67a4926afc7a79dc83ca687"
+      },
+      "outlook": {
+        "api": {
+          "id": "/subscriptions/mysubscriptionguid/providers/Microsoft.Web/locations/northeurope/managedApis/outlook"
+        },
+        "connection": {
+          "id": "/subscriptions/mysubscriptionguid/resourceGroups/la-standard/providers/Microsoft.Web/connections/outlook"
+        },
+        "authentication": {
+          "type": "ManagedServiceIdentity"
+        },
+        "connectionRuntimeUrl": "https://myruntime.url.common.logic-northeurope.azure-apihub.net/apim/outlook/3492bab1a7f34578b3a5f9eb33f1b71f"
+      }
+    },
+    "serviceProviderConnections": {}
+  }
