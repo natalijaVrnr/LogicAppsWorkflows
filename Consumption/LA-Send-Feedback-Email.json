@@ -1,0 +1,259 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "contentVersion": "1.0.0.0",
+        "triggers": {
+            "When_a_HTTP_request_is_received": {
+                "type": "Request",
+                "kind": "Http",
+                "inputs": {
+                    "method": "POST",
+                    "schema": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "topic": {
+                                    "type": "string"
+                                },
+                                "subject": {
+                                    "type": "string"
+                                },
+                                "eventType": {
+                                    "type": "string"
+                                },
+                                "id": {
+                                    "type": "string"
+                                },
+                                "data": {
+                                    "type": "object",
+                                    "properties": {
+                                        "api": {
+                                            "type": "string"
+                                        },
+                                        "clientRequestId": {
+                                            "type": "string"
+                                        },
+                                        "requestId": {
+                                            "type": "string"
+                                        },
+                                        "eTag": {
+                                            "type": "string"
+                                        },
+                                        "contentType": {
+                                            "type": "string"
+                                        },
+                                        "contentLength": {
+                                            "type": "integer"
+                                        },
+                                        "blobType": {
+                                            "type": "string"
+                                        },
+                                        "accessTier": {
+                                            "type": "string"
+                                        },
+                                        "url": {
+                                            "type": "string"
+                                        },
+                                        "sequencer": {
+                                            "type": "string"
+                                        },
+                                        "storageDiagnostics": {
+                                            "type": "object",
+                                            "properties": {
+                                                "batchId": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "dataVersion": {
+                                    "type": "string"
+                                },
+                                "metadataVersion": {
+                                    "type": "string"
+                                },
+                                "eventTime": {
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "topic",
+                                "subject",
+                                "eventType",
+                                "id",
+                                "data",
+                                "dataVersion",
+                                "metadataVersion",
+                                "eventTime"
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "actions": {
+            "Split_blob_URL": {
+                "runAfter": {},
+                "type": "Compose",
+                "inputs": "@split(first(triggerBody())?['data']?['url'], '/')"
+            },
+            "Get_blob_content_(V2)": {
+                "runAfter": {
+                    "Split_blob_URL": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "ApiConnection",
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['azureblob']['connectionId']"
+                        }
+                    },
+                    "method": "get",
+                    "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('AccountNameFromSettings'))}/files/@{encodeURIComponent(encodeURIComponent(concat('/', outputs('Split_blob_URL')?[3], '/', outputs('Split_blob_URL')?[4])))}/content",
+                    "queries": {
+                        "inferContentType": true
+                    }
+                }
+            },
+            "Call_Jokes_API": {
+                "runAfter": {
+                    "Parse_blob_content": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "Http",
+                "inputs": {
+                    "uri": "https://official-joke-api.appspot.com/random_joke",
+                    "method": "GET",
+                    "headers": {
+                        "Content-Type": "application/json"
+                    }
+                },
+                "runtimeConfiguration": {
+                    "contentTransfer": {
+                        "transferMode": "Chunked"
+                    }
+                }
+            },
+            "Parse_response_from_Jokes_API": {
+                "runAfter": {
+                    "Call_Jokes_API": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "ParseJson",
+                "inputs": {
+                    "content": "@body('Call_Jokes_API')",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "type": {
+                                "type": "string"
+                            },
+                            "setup": {
+                                "type": "string"
+                            },
+                            "punchline": {
+                                "type": "string"
+                            },
+                            "id": {
+                                "type": "integer"
+                            }
+                        }
+                    }
+                }
+            },
+            "Parse_blob_content": {
+                "runAfter": {
+                    "Get_blob_content_(V2)": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "ParseJson",
+                "inputs": {
+                    "content": "@body('Get_blob_content_(V2)')",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "orderId": {
+                                "type": "string"
+                            },
+                            "name": {
+                                "type": "string"
+                            },
+                            "surname": {
+                                "type": "string"
+                            },
+                            "email": {
+                                "type": "string"
+                            },
+                            "country": {
+                                "type": "string"
+                            },
+                            "purchaseDate": {
+                                "type": "string"
+                            },
+                            "amount": {
+                                "type": "number"
+                            },
+                            "currency": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "Send_an_email_(V2)": {
+                "runAfter": {
+                    "Parse_response_from_Jokes_API": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "ApiConnection",
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['outlook']['connectionId']"
+                        }
+                    },
+                    "method": "post",
+                    "body": {
+                        "To": "test@test.com",
+                        "Subject": "Your feedback matters to us!",
+                        "Body": "<p class=\"editor-paragraph\">Dear @{body('Parse_blob_content')?['name']} @{body('Parse_blob_content')?['surname']},<br> <br>Thank you for your purchase on @{formatDateTime(body('Parse_blob_content')?['purchaseDate'], 'MMMM dd')}.<br> <br>We hope you're enjoying your new product! We’d love to hear what you think. <br>Please take a moment to share your feedback — it helps us improve.<br> <br>To thank you for your effort, here is a random joke as a reward:<br> <br>@{body('Parse_response_from_Jokes_API')?['setup']}...<br>...@{body('Parse_response_from_Jokes_API')?['punchline']}<br> <br>Kidding! After sharing your feedback, a @{formatNumber(mul(body('Parse_blob_content')?['amount'], 0.1), 'F2')} @{body('Parse_blob_content')?['currency']} voucher will be sent to you as a token of our appreciation.<br> <br>Best regards,<br>The Customer Success Team</p>",
+                        "Importance": "Normal"
+                    },
+                    "path": "/v2/Mail"
+                }
+            }
+        },
+        "outputs": {},
+        "parameters": {
+            "$connections": {
+                "type": "Object",
+                "defaultValue": {}
+            }
+        }
+    },
+    "parameters": {
+        "$connections": {
+            "type": "Object",
+            "value": {
+                "azureblob": {
+                    "id": "/subscriptions/mysubscriptionguid/providers/Microsoft.Web/locations/northeurope/managedApis/azureblob",
+                    "connectionId": "/subscriptions/mysubscriptionguid/resourceGroups/LA-Send-Feedback-Email/providers/Microsoft.Web/connections/azureblob",
+                    "connectionName": "azureblob"
+                },
+                "outlook": {
+                    "id": "/subscriptions/mysubscriptionguid/providers/Microsoft.Web/locations/northeurope/managedApis/outlook",
+                    "connectionId": "/subscriptions/mysubscriptionguid/resourceGroups/LA-Send-Feedback-Email/providers/Microsoft.Web/connections/outlook",
+                    "connectionName": "outlook"
+                }
+            }
+        }
+    }
+}
